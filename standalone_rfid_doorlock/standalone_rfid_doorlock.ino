@@ -11,6 +11,11 @@
 #define BUFFER_LENGTH (7)
 Adafruit_PN532 nfc(PN532_IRQ, PN532_RESET);
 
+#define MOTOR_ENABLE_PIN (7)
+#define MOTOR_CONTROL_PIN_1 (8)
+#define MOTOR_CONTROL_PIN_2 (9)
+#define RATED_DUTY_CYCLE  (64)
+
 // A special card that causes us to enter a different mode where we register new valid cards;
 // treat cards with short (4-byte) IDs as starting at index 0 and 0-extend to 7 bytes
 uint8_t REGISTRATION_CARD[] = { 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65 };
@@ -22,6 +27,10 @@ uint8_t prospective_entry_uid[] = { 0, 0, 0, 0, 0, 0, 0 };
 uint16_t entry_counter;
 
 void setup(void) {
+  pinMode(MOTOR_ENABLE_PIN, OUTPUT);
+  pinMode(MOTOR_CONTROL_PIN_1, OUTPUT);
+  pinMode(MOTOR_CONTROL_PIN_2, OUTPUT);
+  
   Serial.begin(115200);
 
   nfc.begin();
@@ -31,7 +40,7 @@ void setup(void) {
     Serial.print("Didn't find PN53x board");
     while (1); // halt
   }
-  
+
   // configure board to read RFID tags
   nfc.SAMConfig();
 
@@ -39,7 +48,7 @@ void setup(void) {
   Serial.print("Initialized from EEPROM, found ");
   Serial.print(entry_counter);
   Serial.println(" existing registered entries.");
-  
+
   Serial.println("Waiting for an ISO14443A Card ...");
 }
 
@@ -58,20 +67,20 @@ void loop(void) {
       Serial.println("REGISTRATION MODE ACTIVATED");
       for (uint64_t start = millis(), timePassed = 0; timePassed < 10000; timePassed = millis() - start) {
         // Do some blinkenlighten to tell user we're in registration mode and waiting for a new read
-        timePassed % 1000 / 250 % 2? digitalWrite(RED_LED_PIN, HIGH): digitalWrite(RED_LED_PIN, LOW);
-        timePassed % 1000 / 250 % 2? digitalWrite(GREEN_LED_PIN, LOW): digitalWrite(GREEN_LED_PIN, HIGH);
-        
+        timePassed % 1000 / 250 % 2 ? digitalWrite(RED_LED_PIN, HIGH) : digitalWrite(RED_LED_PIN, LOW);
+        timePassed % 1000 / 250 % 2 ? digitalWrite(GREEN_LED_PIN, LOW) : digitalWrite(GREEN_LED_PIN, HIGH);
+
         if (nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, current_uid, &uidLength, 250)) {
           if (isRegistrationCard())
             break; // double read? PEBKAC?
-            
+
           memcpy(prospective_entry_uid, current_uid, BUFFER_LENGTH);
           Serial.print("Received registration request for: ");
           nfc.PrintHex(current_uid, BUFFER_LENGTH);
           Serial.println("");
-         
+
           displaySuccess();  // signal that we had a good read and are waiting for a confirmation tap
-  
+
           if (nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, current_uid, &uidLength, 10000)) {
             if (memcmp(current_uid, prospective_entry_uid, BUFFER_LENGTH) == 0) {
               Serial.println("Received registration confirmation!");
@@ -89,7 +98,7 @@ void loop(void) {
         } // read card after registration
       } // blinky registration mode active
       clearLEDState();
-    } 
+    }
 
     if (isValidEntrant()) {
       Serial.println("Valid entrant accepted.");
@@ -101,7 +110,7 @@ void loop(void) {
 }
 
 bool isRegistrationCard() {
-    return memcmp(current_uid, REGISTRATION_CARD, BUFFER_LENGTH) == 0;
+  return memcmp(current_uid, REGISTRATION_CARD, BUFFER_LENGTH) == 0;
 }
 
 bool isValidEntrant() {
@@ -115,18 +124,18 @@ bool isValidEntrant() {
 
 void registerCard() {
   uint16_t new_address = ENTRY_COUNTER_LENGTH + entry_counter * BUFFER_LENGTH;
-  
+
   if (new_address > EEPROM.length()) {
     Serial.println("ERROR - No space left on device to store additional registrations.");
     for (uint64_t start = millis(), timePassed = 0; timePassed < 4000; timePassed = millis() - start)
-      timePassed % 1000 / 250 % 2? digitalWrite(RED_LED_PIN, HIGH): digitalWrite(RED_LED_PIN, LOW);
+      timePassed % 1000 / 250 % 2 ? digitalWrite(RED_LED_PIN, HIGH) : digitalWrite(RED_LED_PIN, LOW);
     return;
   }
-  
+
   eeprom_write_block(current_uid, (void *) new_address, BUFFER_LENGTH);
   entry_counter += BUFFER_LENGTH;
   EEPROM.put(ENTRY_COUNTER_LOCATION, entry_counter);
-  
+
   Serial.print("Success! Device: ");
   nfc.PrintHex(current_uid, BUFFER_LENGTH);
   Serial.print(" was succesfully registered into slot ");
@@ -151,7 +160,18 @@ void displayErrorAndDelay() {
 
 
 void unlockDoor() {
-  // todo
+  digitalWrite(MOTOR_CONTROL_PIN_1, HIGH);
+  digitalWrite(MOTOR_CONTROL_PIN_2, LOW);
+  analogWrite(MOTOR_ENABLE_PIN, RATED_DUTY_CYCLE);
+  delay(3000);
+  analogWrite(MOTOR_ENABLE_PIN, 0);
 }
 
+void lockDoor() {
+  digitalWrite(MOTOR_CONTROL_PIN_1, LOW);
+  digitalWrite(MOTOR_CONTROL_PIN_2, HIGH);
+  analogWrite(MOTOR_ENABLE_PIN, RATED_DUTY_CYCLE);
+  delay(3000);
+  analogWrite(MOTOR_ENABLE_PIN, 0);
+}
 
